@@ -1,6 +1,7 @@
 package lifx
 
 import (
+	"io"
 	"math"
 	"strings"
 
@@ -54,12 +55,14 @@ func (lc *LIFXClient) SetColorState(id string, state *golifx.HSBK, duration uint
 		l.bulb.SetPowerDurationState(true, duration)
 	}
 	res, err := l.bulb.SetColorStateWithResponse(state, duration)
-	if err != nil {
+	if err == nil {
+		l.state = res
+	} else if err != io.EOF {
 		logging.Error("Error setting color state: %v", err)
+		l.bulb.SetPowerState(true)
 		return
 	}
-	l.state = res
-	if !res.Power {
+	if res == nil || !res.Power {
 		l.bulb.SetPowerDurationState(true, duration)
 	}
 }
