@@ -1,5 +1,7 @@
 # go-lifx-mqtt
 
+**NOTE: This is a work in progress. Depends on `github.com/2tvenom/golifx` which seems to have trouble discovering bulbs and frequently fails to change their state. Will try and migrate `to github.com/pdf/golifx`.**
+
 This is a simple MQTT client that listens for messages containing commands and sends them to the LIFX bulbs.
 
 Initially designed to be a replacement for https://github.com/denwilliams/lifx-mqtt. Future versions may support more features.
