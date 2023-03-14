@@ -30,7 +30,7 @@ jobs:
           build_command: "make build"
           binary_name: lifx-mqtt
           compress_assets: false
-          release_tag: v0.0.1
+          release_tag: ${{ github.ref_name }}
           retry: 10
           overwrite: true
       - name: Generate linux arm64 build
@@ -43,7 +43,7 @@ jobs:
           build_command: "make build"
           binary_name: lifx-mqtt
           compress_assets: false
-          release_tag: v0.0.1
+          release_tag: ${{ github.ref_name }}
           retry: 10
           overwrite: true
       - name: Generate linux arm build
@@ -56,7 +56,7 @@ jobs:
           build_command: "make build"
           binary_name: lifx-mqtt
           compress_assets: false
-          release_tag: v0.0.1
+          release_tag: ${{ github.ref_name }}
           retry: 10
           overwrite: true
       - name: Generate darwin amd64 build
@@ -69,6 +69,6 @@ jobs:
           build_command: "make build"
           binary_name: lifx-mqtt
           compress_assets: false
-          release_tag: v0.0.1
+          release_tag: ${{ github.ref_name }}
           retry: 10
           overwrite: true

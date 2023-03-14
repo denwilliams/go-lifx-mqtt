@@ -2,7 +2,6 @@ package mqtt
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/url"
 	"strings"
 
@@ -29,6 +28,8 @@ func (mc *MQTTClient) Connect(h CommandHandler) {
 		panic(token.Error())
 	}
 
+	logging.Info("Connected to MQTT")
+
 	prefix := strings.Replace(mc.topic, "#", "", 1)
 
 	// Set up a callback function to handle incoming messages
@@ -42,10 +43,10 @@ func (mc *MQTTClient) Connect(h CommandHandler) {
 		bytes := msg.Payload()
 		payload, err := parsePayload(&bytes)
 		if err != nil {
-			fmt.Printf("Error unmarshalling JSON: %s %v\n", err, string(bytes))
+			logging.Warn("Error unmarshalling JSON: %s %v", err, string(bytes))
 			return
 		}
-		fmt.Printf("Received message on topic %s: %s\n", id, payload.String())
+		logging.Debug("Received message on topic %s: %s", id, payload.String())
 
 		// messages := make(chan string)
 		// go func() { messages <- "ping" }()
@@ -60,6 +61,7 @@ func (mc *MQTTClient) Connect(h CommandHandler) {
 	if token := (*mc.client).Subscribe(mc.topic, 1, messageHandler); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
+	logging.Info("Subscribed to %s", mc.topic)
 }
 
 func (mc *MQTTClient) Disconnect() {
@@ -76,7 +78,7 @@ func (mc *MQTTClient) Disconnect() {
 
 func NewMQTTClient(uri *url.URL, topic string) *MQTTClient {
 	// Create a new MQTT client with the default options
-	opts := pm.NewClientOptions().AddBroker(uri.String()).SetClientID("emqx_test_client")
+	opts := pm.NewClientOptions().AddBroker(uri.String()).SetClientID("lifx_mqtt")
 	client := pm.NewClient(opts)
 	return &MQTTClient{client: &client, topic: topic}
 }

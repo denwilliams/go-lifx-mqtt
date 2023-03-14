@@ -1,23 +1,36 @@
 package logging
 
-import "log"
+import (
+	"log"
+	"os"
+)
+
+var (
+	debugLogger   *log.Logger
+	infoLogger    *log.Logger
+	warningLogger *log.Logger
+	errorLogger   *log.Logger
+)
 
 func Init() {
-	log.SetFlags(0)
+	debugLogger = log.New(os.Stdout, "DEBG: ", log.Ldate|log.Ltime)
+	infoLogger = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime)
+	warningLogger = log.New(os.Stdout, "WARN: ", log.Ldate|log.Ltime)
+	errorLogger = log.New(os.Stderr, "ERRO: ", log.Ldate|log.Ltime)
 }
 
 func Debug(format string, v ...interface{}) {
-	log.Printf("[DEBG] "+format+"\n", v...)
+	debugLogger.Printf(format+"\n", v...)
 }
 
 func Info(format string, v ...interface{}) {
-	log.Printf("[INFO] "+format+"\n", v...)
+	infoLogger.Printf(format+"\n", v...)
 }
 
 func Warn(format string, v ...interface{}) {
-	log.Printf("[WARN] "+format+"\n", v...)
+	warningLogger.Printf(format+"\n", v...)
 }
 
 func Error(format string, v ...interface{}) {
-	log.Printf("[ERRO] "+format+"\n", v...)
+	errorLogger.Printf(format+"\n", v...)
 }
