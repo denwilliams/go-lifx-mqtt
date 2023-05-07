@@ -1,10 +1,18 @@
 # go-lifx-mqtt
 
-**NOTE: This is a work in progress. Depends on `github.com/2tvenom/golifx` which seems to have trouble discovering bulbs and frequently fails to change their state. Will try and migrate `to github.com/pdf/golifx`.**
+**NOTE: This is a work in progress.**
 
 This is a simple MQTT client that listens for messages containing commands and sends them to the LIFX bulbs.
 
 Initially designed to be a replacement for https://github.com/denwilliams/lifx-mqtt. Future versions may support more features.
+
+## Running
+
+run `make run` or `go run ./cmd/lifx-mqtt`
+
+## Building
+
+run `make build` or `go build -o lifx-mqtt ./cmd/lifx-mqtt`
 
 ## Configuration
 
@@ -14,11 +22,21 @@ Using environment variables:
 MQTT_URI="mqtt://localhost:1883" MQTT_TOPIC_PREFIX="lifx" ./lifx-mqtt
 ```
 
+or from source..
+
+```bash
+MQTT_URI="mqtt://localhost:1883" MQTT_TOPIC_PREFIX="lifx" go run ./cmd/lifx-mqtt
+```
+
 For development you can create a `.env` file in the root of the project.
 
 ## Topics
 
 Assuming the `MQTT_TOPIC_PREFIX` is `lifx`:
+
+### `lifx/set/discover`
+
+Starts a discovery of LIFX bulbs on the network. This is done automatically on startup, and periodically in the background, but can be triggered manually if needed.
 
 
 ### `lifx/set/{id}`
@@ -53,20 +71,18 @@ Light Cool Full Brightness:
 }
 ```
 
-Light Red Full Brightness:
+Light Red:
 
 ```json
 {
-  "brightness": 100,
   "color": "#FF0000"
 }
 ```
 
-Light Green Half Brightness:
+Light Green:
 
 ```json
 {
-  "brightness": 50,
   "color": "#00FF00"
 }
 ```
@@ -83,11 +99,3 @@ Fade the light out over 10s:
 ### TODO `lifx/set/{id}/(on|off)`
 
 TODO: turn a light on/off without messing with it's state
-
-### TODO `lifx/discover`
-
-TODO: trigger a new discovery
-
-### TODO `lifx/discover`
-
-TODO: trigger a new discovery
