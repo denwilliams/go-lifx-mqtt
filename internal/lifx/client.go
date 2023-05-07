@@ -85,7 +85,7 @@ func (lc *LIFXClient) DiscoverWithTimeout(timeout time.Duration) int {
 		lc.lights.Set(key, &light{device: &l})
 	}
 
-	logging.Debug("Done - total lights discovered: %d", len(lc.lights))
+	logging.Debug("Total lights discovered: %d", len(lc.lights))
 	lc.discovering = false
 	return numDiscovered
 }
@@ -141,7 +141,6 @@ func (lc *LIFXClient) SetWhite(id string, brightness uint16, kelvin uint16, dura
 		Brightness: b,
 	}
 
-	logging.Info("Duration %d", duration)
 	err = d.SetColor(ctx, conn, hsbk, time, true)
 	if err != nil {
 		return err
