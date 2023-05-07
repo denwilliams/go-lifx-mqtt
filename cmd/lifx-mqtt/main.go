@@ -31,24 +31,46 @@ func main() {
 	topic := os.ExpandEnv("$MQTT_TOPIC_PREFIX/set/#")
 
 	mc := mqtt.NewMQTTClient(mu, topic)
-	ld := lifx.NewClient()
-	mc.Connect(ld)
+	lc := lifx.NewClient()
+	mc.Connect(lc)
 	defer mc.Disconnect()
 
-	mainLoop(ld)
+	// NOTE: can use NewDevice to avoid having to rediscover each startup
+	// eg NewDevice("1.2.3.4:1234", lifxlan.ServiceUDP, ParseTarget("0123456"))
+	go discoverLoop(lc)
+
+	waitForExit()
 
 	logging.Info("Terminating program")
 }
 
-func mainLoop(ld *lifx.LIFXClient) {
+func waitForExit() {
 	// Set up a channel to receive OS signals so we can gracefully exit
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
 
+	<-signalChan
+	logging.Info("Exit signal received")
+}
+
+func discoverLoop(lc *lifx.LIFXClient) {
+	// Set up a channel to receive OS signals so we can gracefully exit
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+
+	logging.Info("Performing initial discovery")
 	// It can take a few runs to discover all the lights
-	for i := (5 * time.Second); i <= 80*time.Second; i = i * 2 {
-		time.AfterFunc(i, ld.Discover)
+	// Keep going until we find no new lights for a few runs
+	emptyRuns := 0
+	for emptyRuns < 2 {
+		found := lc.DiscoverWithTimeout(15 * time.Second)
+		if found == 0 {
+			emptyRuns++
+		} else {
+			emptyRuns = 0
+		}
 	}
+	logging.Info("Finished initial light discovery, will continue to discover every 10 minutes")
 
 	// We want to continually call the Discover method at an interval
 	// to pick up on new lights that come online
@@ -57,9 +79,10 @@ func mainLoop(ld *lifx.LIFXClient) {
 	for {
 		select {
 		case <-tick:
-			ld.Discover()
+			lc.DiscoverWithTimeout(60 * time.Second)
 		case <-signalChan:
 			// Stop the loop when an interrupt signal is received
+			logging.Info("Background discovery loop interrupted, exiting")
 			return
 		}
 	}

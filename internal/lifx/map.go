@@ -1,12 +1,11 @@
 package lifx
 
 import (
-	"github.com/2tvenom/golifx"
+	lifxlanlight "go.yhsif.com/lifxlan/light"
 )
 
 type light struct {
-	bulb  *golifx.Bulb
-	state *golifx.BulbState
+	device *lifxlanlight.Device
 }
 
 type lightMap map[string]*light
