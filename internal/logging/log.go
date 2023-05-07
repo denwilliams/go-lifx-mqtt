@@ -20,7 +20,7 @@ func Init() {
 }
 
 func Debug(format string, v ...interface{}) {
-	debugLogger.Printf(format+"\n", v...)
+	// debugLogger.Printf(format+"\n", v...)
 }
 
 func Info(format string, v ...interface{}) {

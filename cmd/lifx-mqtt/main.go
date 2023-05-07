@@ -35,9 +35,12 @@ func main() {
 	mc.Connect(lc)
 	defer mc.Disconnect()
 
+	go discoverLoop(lc)
+	go updateCachedState(lc)
 	// NOTE: can use NewDevice to avoid having to rediscover each startup
 	// eg NewDevice("1.2.3.4:1234", lifxlan.ServiceUDP, ParseTarget("0123456"))
-	go discoverLoop(lc)
+
+	logging.Info("Ready")
 
 	waitForExit()
 
@@ -62,7 +65,7 @@ func discoverLoop(lc *lifx.LIFXClient) {
 	// It can take a few runs to discover all the lights
 	// Keep going until we find no new lights for a few runs
 	emptyRuns := 0
-	for emptyRuns < 2 {
+	for emptyRuns < 10 {
 		found := lc.DiscoverWithTimeout(15 * time.Second)
 		if found == 0 {
 			emptyRuns++
@@ -83,6 +86,25 @@ func discoverLoop(lc *lifx.LIFXClient) {
 		case <-signalChan:
 			// Stop the loop when an interrupt signal is received
 			logging.Info("Background discovery loop interrupted, exiting")
+			return
+		}
+	}
+}
+
+func updateCachedState(lc *lifx.LIFXClient) {
+	// Set up a channel to receive OS signals so we can gracefully exit
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+
+	tick := time.Tick(1 * time.Minute)
+
+	for {
+		select {
+		case <-tick:
+			lc.RefreshLightState()
+		case <-signalChan:
+			// Stop the loop when an interrupt signal is received
+			logging.Info("Background cached state updater interrupted, exiting")
 			return
 		}
 	}

@@ -12,7 +12,6 @@ import (
 	"github.com/denwilliams/go-lifx-mqtt/internal/mqtt"
 	"github.com/icza/gox/imagex/colorx"
 	"go.yhsif.com/lifxlan"
-	lifxlanlight "go.yhsif.com/lifxlan/light"
 )
 
 var (
@@ -20,13 +19,19 @@ var (
 )
 
 func NewClient() *LIFXClient {
-	lights := make(lightMap)
-	return &LIFXClient{lights: lights}
+	lights := make(deviceMap)
+	return &LIFXClient{devices: lights}
 }
 
 type LIFXClient struct {
-	lights      lightMap
+	devices     deviceMap
 	discovering bool
+}
+
+func (lc *LIFXClient) RefreshLightState() {
+	for _, l := range lc.devices {
+		go l.Refresh()
+	}
 }
 
 func (lc *LIFXClient) AddDevice(ip string, mac string) error {
@@ -39,18 +44,9 @@ func (lc *LIFXClient) AddDevice(ip string, mac string) error {
 	addr := net.JoinHostPort(ip, lifxlan.DefaultBroadcastPort)
 	d := lifxlan.NewDevice(addr, lifxlan.ServiceUDP, t)
 
-	timeout := 30 * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	l, err := lifxlanlight.Wrap(ctx, d, false)
-	if err != nil {
-		return err
-	}
-
-	lc.lights.Set(key, &light{device: &l})
-
-	return nil
+	l := newDevice(key, d)
+	lc.devices.Set(key, l)
+	return l.Load()
 }
 
 func (lc *LIFXClient) Discover() {
@@ -85,70 +81,91 @@ func (lc *LIFXClient) DiscoverWithTimeout(timeout time.Duration) int {
 		t := device.Target().String()
 		key := strings.Replace(t, ":", "", -1)
 
-		if lc.lights.Has(key) {
+		if lc.devices.Has(key) {
 			continue
 		}
 
-		ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
 		if err := device.GetLabel(ctx, nil); err != nil {
 			logging.Warn("Couldn't get label for device=%s err=%s", t, err.Error())
 			continue
 		}
 
-		l, err := lifxlanlight.Wrap(ctx, device, false)
-		if checkContextError(err) {
-			log.Printf("Check light capabilities for %v failed: %v", device, err)
-			cancel()
-			continue
-		} else if l == nil {
-			logging.Warn("Cast to light failed for %s", t)
-			continue
-		}
-
+		l := newDevice(key, device)
+		lc.devices.Set(key, l)
 		numDiscovered++
 		logging.Info("Found device label=\"%s\" target=%s", device.Label(), t)
-		lc.lights.Set(key, &light{device: &l})
+
+		// err := l.Load()
+		// if checkContextError(err) {
+		// 	log.Printf("Check light capabilities for %v failed: %v", device, err)
+		// 	continue
+		// }
 	}
 
-	logging.Debug("Total lights discovered: %d", len(lc.lights))
+	logging.Debug("Total lights discovered: %d", len(lc.devices))
 	lc.discovering = false
+
+	for _, l := range lc.devices {
+		if !l.loaded {
+			go l.Load()
+		}
+	}
+
 	return numDiscovered
 }
 
 func (lc *LIFXClient) TurnOn(id string) error {
-	l := lc.lights.Get(id)
+	l := lc.devices.Get(id)
 	if l == nil {
 		logging.Warn("No light found for id=%s", id)
 		return nil
 	}
 
-	d := *l.device
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	return d.SetPower(ctx, nil, lifxlan.PowerOn, true)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if l.light != nil {
+		return l.light.SetPower(ctx, nil, lifxlan.PowerOn, true)
+	}
+
+	return l.device.SetPower(ctx, nil, lifxlan.PowerOn, true)
 }
 
 func (lc *LIFXClient) TurnOff(id string) error {
-	l := lc.lights.Get(id)
+	l := lc.devices.Get(id)
 	if l == nil {
 		logging.Warn("No light found for id=%s", id)
 		return nil
 	}
 
-	d := *l.device
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	return d.SetPower(ctx, nil, lifxlan.PowerOff, true)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if l.light != nil {
+		return l.light.SetPower(ctx, nil, lifxlan.PowerOff, true)
+	}
+
+	return l.device.SetPower(ctx, nil, lifxlan.PowerOff, true)
 }
 
 func (lc *LIFXClient) SetWhite(id string, brightness uint16, kelvin uint16, duration uint32) error {
-	l := lc.lights.Get(id)
+	l := lc.devices.Get(id)
 	if l == nil {
 		logging.Warn("No light found for id=%s", id)
 		return nil
 	}
 
-	d := *l.device
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	conn, err := d.Dial()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if l.light == nil {
+		return nil
+	}
+
+	conn, err := l.light.Dial()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -166,12 +183,12 @@ func (lc *LIFXClient) SetWhite(id string, brightness uint16, kelvin uint16, dura
 		Brightness: b,
 	}
 
-	err = d.SetColor(ctx, conn, hsbk, time, true)
+	err = l.light.SetColor(ctx, conn, hsbk, time, true)
 	if err != nil {
 		return err
 	}
 
-	err = d.SetPower(ctx, conn, lifxlan.PowerOn, true)
+	err = l.light.SetPower(ctx, conn, lifxlan.PowerOn, true)
 	if err != nil {
 		return err
 	}
@@ -180,15 +197,20 @@ func (lc *LIFXClient) SetWhite(id string, brightness uint16, kelvin uint16, dura
 }
 
 func (lc *LIFXClient) SetColor(id string, hsbk *lifxlan.Color, duration uint32) error {
-	l := lc.lights.Get(id)
+	l := lc.devices.Get(id)
 	if l == nil {
 		logging.Warn("No light found for id=%s", id)
 		return nil
 	}
 
-	d := *l.device
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	conn, err := d.Dial()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if l.light == nil {
+		return nil
+	}
+
+	conn, err := l.light.Dial()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -200,13 +222,34 @@ func (lc *LIFXClient) SetColor(id string, hsbk *lifxlan.Color, duration uint32) 
 
 	time := time.Duration(duration) * time.Millisecond
 
-	err = d.SetColor(ctx, conn, hsbk, time, true)
+	err = l.light.SetColor(ctx, conn, hsbk, time, true)
 	if err != nil {
 		return err
 	}
 
-	err = d.SetPower(ctx, conn, lifxlan.PowerOn, true)
+	err = l.light.SetPower(ctx, conn, lifxlan.PowerOn, true)
 	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (lc *LIFXClient) SetRelay(id string, index uint8, power bool) error {
+	l := lc.devices.Get(id)
+	if l == nil {
+		logging.Warn("No device found for id=%s", id)
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if l.relay == nil {
+		return nil
+	}
+
+	if err := l.relay.SetRPower(ctx, nil, index, getPower(power), true); err != nil {
 		return err
 	}
 
@@ -223,9 +266,9 @@ func (lc *LIFXClient) HandleCommand(id string, command *mqtt.Command) error {
 		return nil
 	}
 
-	dur := command.Duration
-	if dur == 0 {
-		dur = defaultDuration
+	dur := defaultDuration
+	if command.Duration != nil {
+		dur = *command.Duration
 	}
 
 	brightness := uint16(0)
@@ -260,6 +303,23 @@ func (lc *LIFXClient) HandleCommand(id string, command *mqtt.Command) error {
 		return lc.SetColor(id, hsbk, dur)
 	}
 
+	if command.Relay0 != nil {
+		logging.Info("Set relay0 %s %v", id, *command.Relay0)
+		lc.SetRelay(id, 0, *command.Relay0)
+	}
+	if command.Relay1 != nil {
+		logging.Info("Set relay1 %s %v", id, *command.Relay1)
+		lc.SetRelay(id, 1, *command.Relay1)
+	}
+	if command.Relay2 != nil {
+		logging.Info("Set relay2 %s %v", id, *command.Relay2)
+		lc.SetRelay(id, 2, *command.Relay2)
+	}
+	if command.Relay3 != nil {
+		logging.Info("Set relay3 %s %v", id, *command.Relay3)
+		lc.SetRelay(id, 3, *command.Relay3)
+	}
+
 	return nil
 }
 
@@ -279,4 +339,11 @@ func safeString(s *string) string {
 		return "(nil)"
 	}
 	return (*s)
+}
+
+func getPower(power bool) lifxlan.Power {
+	if power {
+		return lifxlan.PowerOn
+	}
+	return lifxlan.PowerOff
 }

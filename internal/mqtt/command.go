@@ -8,7 +8,11 @@ type Command struct {
 	Brightness  *uint16 `json:"brightness"`
 	Color       *string `json:"color"`
 	Temperature *uint16 `json:"temp"`
-	Duration    uint32  `json:"duration"`
+	Duration    *uint32 `json:"duration"`
+	Relay0      *bool   `json:"relay0"`
+	Relay1      *bool   `json:"relay1"`
+	Relay2      *bool   `json:"relay2"`
+	Relay3      *bool   `json:"relay3"`
 }
 
 func safeUint16(s *uint16) string {
