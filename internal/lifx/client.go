@@ -90,15 +90,25 @@ func (lc *LIFXClient) DiscoverWithTimeout(timeout time.Duration) int {
 	return numDiscovered
 }
 
-func (lc *LIFXClient) TurnOn(id string) {
+func (lc *LIFXClient) TurnOn(id string) error {
 	l := lc.lights.Get(id)
+	if l == nil {
+		logging.Warn("No light found for id=%s", id)
+		return nil
+	}
+
 	d := *l.device
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	d.SetPower(ctx, nil, lifxlan.PowerOn, true)
+	return d.SetPower(ctx, nil, lifxlan.PowerOn, true)
 }
 
 func (lc *LIFXClient) TurnOff(id string) error {
 	l := lc.lights.Get(id)
+	if l == nil {
+		logging.Warn("No light found for id=%s", id)
+		return nil
+	}
+
 	d := *l.device
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	return d.SetPower(ctx, nil, lifxlan.PowerOff, true)
@@ -110,6 +120,7 @@ func (lc *LIFXClient) SetWhite(id string, brightness uint16, kelvin uint16, dura
 		logging.Warn("No light found for id=%s", id)
 		return nil
 	}
+
 	d := *l.device
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	conn, err := d.Dial()
@@ -150,6 +161,7 @@ func (lc *LIFXClient) SetColor(id string, hsbk *lifxlan.Color, duration uint32) 
 		logging.Warn("No light found for id=%s", id)
 		return nil
 	}
+
 	d := *l.device
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	conn, err := d.Dial()
@@ -178,6 +190,11 @@ func (lc *LIFXClient) SetColor(id string, hsbk *lifxlan.Color, duration uint32) 
 }
 
 func (lc *LIFXClient) HandleCommand(id string, command *mqtt.Command) error {
+	if id == "discover" {
+		go lc.Discover()
+		return nil
+	}
+
 	if command == nil {
 		return nil
 	}
