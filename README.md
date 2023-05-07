@@ -74,17 +74,13 @@ Light Cool Full Brightness:
 Light Red:
 
 ```json
-{
-  "color": "#FF0000"
-}
+{"color": "#FF0000"}
 ```
 
 Light Green:
 
 ```json
-{
-  "color": "#00FF00"
-}
+{"color": "#00FF00"}
 ```
 
 Fade the light out over 10s:

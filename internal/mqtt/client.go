@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/dchest/uniuri"
 	"github.com/denwilliams/go-lifx-mqtt/internal/logging"
 	pm "github.com/eclipse/paho.mqtt.golang"
 )
@@ -28,7 +29,7 @@ func (mc *MQTTClient) Connect(h CommandHandler) {
 		panic(token.Error())
 	}
 
-	logging.Info("Connected to MQTT")
+	// logging.Info("Connected to MQTT")
 
 	prefix := strings.Replace(mc.topic, "#", "", 1)
 
@@ -78,7 +79,8 @@ func (mc *MQTTClient) Disconnect() {
 
 func NewMQTTClient(uri *url.URL, topic string) *MQTTClient {
 	// Create a new MQTT client with the default options
-	opts := pm.NewClientOptions().AddBroker(uri.String()).SetClientID("lifx_mqtt")
+	opts := pm.NewClientOptions().AddBroker(uri.String()).SetClientID("lifx_mqtt_" + uniuri.New()).SetOnConnectHandler(onConnectHandler).SetConnectionLostHandler(onConnectionLostHandler)
+
 	client := pm.NewClient(opts)
 	return &MQTTClient{client: &client, topic: topic}
 }
@@ -99,4 +101,12 @@ func parsePayload(bytes *[]byte) (*Command, error) {
 	}
 
 	return &payload, nil
+}
+
+func onConnectHandler(c pm.Client) {
+	logging.Info("Connected to MQTT")
+}
+
+func onConnectionLostHandler(c pm.Client, err error) {
+	panic(err.Error())
 }

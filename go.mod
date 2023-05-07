@@ -3,6 +3,7 @@ module github.com/denwilliams/go-lifx-mqtt
 go 1.20
 
 require (
+	github.com/dchest/uniuri v1.2.0
 	github.com/eclipse/paho.mqtt.golang v1.4.2
 	github.com/icza/gox v0.0.0-20230330130131-23e1aaac139e
 	github.com/joho/godotenv v1.5.1

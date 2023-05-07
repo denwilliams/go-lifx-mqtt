@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"time"
 
@@ -26,6 +27,30 @@ func NewClient() *LIFXClient {
 type LIFXClient struct {
 	lights      lightMap
 	discovering bool
+}
+
+func (lc *LIFXClient) AddDevice(ip string, mac string) error {
+	key := strings.Replace(mac, ":", "", -1)
+	t, err := lifxlan.ParseTarget(mac)
+	if err != nil {
+		return err
+	}
+	logging.Debug("Adding device %s %s %s", key, ip, t)
+	addr := net.JoinHostPort(ip, lifxlan.DefaultBroadcastPort)
+	d := lifxlan.NewDevice(addr, lifxlan.ServiceUDP, t)
+
+	timeout := 30 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	l, err := lifxlanlight.Wrap(ctx, d, false)
+	if err != nil {
+		return err
+	}
+
+	lc.lights.Set(key, &light{device: &l})
+
+	return nil
 }
 
 func (lc *LIFXClient) Discover() {
@@ -216,7 +241,7 @@ func (lc *LIFXClient) HandleCommand(id string, command *mqtt.Command) error {
 		temperature = *command.Temperature
 	}
 	if temperature > 0 {
-		logging.Info("Set bulb %s %dK %d%%", id, temperature, brightness)
+		logging.Info("Set light %s %dK %d%%", id, temperature, brightness)
 		lc.SetWhite(id, brightness, temperature, dur)
 		return nil
 	}
@@ -231,7 +256,7 @@ func (lc *LIFXClient) HandleCommand(id string, command *mqtt.Command) error {
 		}
 
 		hsbk := lifxlan.FromColor(c, temperature)
-		logging.Info("Set bulb %s color %v", id, *hsbk)
+		logging.Info("Set light %s color %v", id, *hsbk)
 		return lc.SetColor(id, hsbk, dur)
 	}
 
