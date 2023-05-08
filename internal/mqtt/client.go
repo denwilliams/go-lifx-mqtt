@@ -10,17 +10,37 @@ import (
 	pm "github.com/eclipse/paho.mqtt.golang"
 )
 
-type MQTTClient struct {
-	client *pm.Client
-	topic  string
+func NewMQTTClient(uri *url.URL, baseTopic string, subscribeTopic string) *MQTTClient {
+	// Create a new MQTT client with the default options
+	opts := pm.NewClientOptions().AddBroker(uri.String()).SetClientID("lifx_mqtt_" + uniuri.New()).SetOnConnectHandler(onConnectHandler).SetConnectionLostHandler(onConnectionLostHandler)
+
+	client := pm.NewClient(opts)
+	return &MQTTClient{client: &client, baseTopic: baseTopic, subscribeTopic: subscribeTopic}
 }
 
-func (mc *MQTTClient) Publish(payload string) {
-	// Publish a message to the topic with a QoS of 1
-	if token := (*mc.client).Publish(mc.topic, 1, false, payload); token.Wait() && token.Error() != nil {
-		// TODO: don't panic, just return
-		panic(token.Error())
+type MQTTClient struct {
+	client         *pm.Client
+	baseTopic      string
+	subscribeTopic string
+}
+
+func (mc *MQTTClient) Publish(topic string, data interface{}) error {
+	payload, err := serializePayload(data)
+	if err != nil {
+		return err
 	}
+
+	fullTopic := mc.baseTopic + topic
+
+	// Publish a message to the topic with a QoS of 1
+	if token := (*mc.client).Publish(fullTopic, 1, false, payload); token.Wait() && token.Error() != nil {
+		// TODO: don't panic, just return
+		// panic(token.Error())
+		logging.Warn("Error publishing message: %s", token.Error())
+		return err
+	}
+
+	return nil
 }
 
 func (mc *MQTTClient) Connect(h CommandHandler) {
@@ -31,7 +51,7 @@ func (mc *MQTTClient) Connect(h CommandHandler) {
 
 	// logging.Info("Connected to MQTT")
 
-	prefix := strings.Replace(mc.topic, "#", "", 1)
+	prefix := strings.Replace(mc.subscribeTopic, "#", "", 1)
 
 	// Set up a callback function to handle incoming messages
 	messageHandler := func(client pm.Client, msg pm.Message) {
@@ -59,30 +79,22 @@ func (mc *MQTTClient) Connect(h CommandHandler) {
 	}
 
 	// Subscribe to the topic with a QoS of 1
-	if token := (*mc.client).Subscribe(mc.topic, 1, messageHandler); token.Wait() && token.Error() != nil {
+	if token := (*mc.client).Subscribe(mc.subscribeTopic, 1, messageHandler); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
-	logging.Info("Subscribed to %s", mc.topic)
+	logging.Info("Subscribed to %s", mc.subscribeTopic)
 }
 
 func (mc *MQTTClient) Disconnect() {
 	logging.Info("Disconnecting from MQTT")
 
 	// Unsubscribe from the topic
-	if token := (*mc.client).Unsubscribe(mc.topic); token.Wait() && token.Error() != nil {
+	if token := (*mc.client).Unsubscribe(mc.baseTopic); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
 
 	// Disconnect from the MQTT broker
 	(*mc.client).Disconnect(250)
-}
-
-func NewMQTTClient(uri *url.URL, topic string) *MQTTClient {
-	// Create a new MQTT client with the default options
-	opts := pm.NewClientOptions().AddBroker(uri.String()).SetClientID("lifx_mqtt_" + uniuri.New()).SetOnConnectHandler(onConnectHandler).SetConnectionLostHandler(onConnectionLostHandler)
-
-	client := pm.NewClient(opts)
-	return &MQTTClient{client: &client, topic: topic}
 }
 
 func parsePayload(bytes *[]byte) (*Command, error) {
@@ -101,6 +113,10 @@ func parsePayload(bytes *[]byte) (*Command, error) {
 	}
 
 	return &payload, nil
+}
+
+func serializePayload(payload interface{}) ([]byte, error) {
+	return json.Marshal(payload)
 }
 
 func onConnectHandler(c pm.Client) {

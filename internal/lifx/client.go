@@ -18,20 +18,16 @@ var (
 	defaultDuration uint32 = 1500
 )
 
-func NewClient() *LIFXClient {
+func NewClient(emitter StatusEmitter) *LIFXClient {
 	lights := make(deviceMap)
-	return &LIFXClient{devices: lights}
+	return &LIFXClient{devices: lights, emitter: emitter}
 }
 
 type LIFXClient struct {
 	devices     deviceMap
 	discovering bool
-}
-
-func (lc *LIFXClient) RefreshLightState() {
-	for _, l := range lc.devices {
-		go l.Refresh()
-	}
+	refreshing  bool
+	emitter     StatusEmitter
 }
 
 func (lc *LIFXClient) AddDevice(ip string, mac string) error {
@@ -117,7 +113,29 @@ func (lc *LIFXClient) DiscoverWithTimeout(timeout time.Duration) int {
 	return numDiscovered
 }
 
-func (lc *LIFXClient) TurnOn(id string) error {
+func (lc *LIFXClient) RefreshDevices() {
+	if lc.refreshing {
+		logging.Warn("Aborted - already refreshing")
+		return
+	}
+	lc.refreshing = true
+	for _, l := range lc.devices {
+		if l.stale {
+			logging.Debug("Refreshing %s", l.id)
+			go l.Refresh(lc.emitter)
+		}
+	}
+	lc.refreshing = false
+}
+
+func (lc *LIFXClient) ForceRefreshDevices() {
+	for _, l := range lc.devices {
+		l.stale = true
+	}
+	lc.RefreshDevices()
+}
+
+func (lc *LIFXClient) TurnOn(id string, duration uint32) error {
 	l := lc.devices.Get(id)
 	if l == nil {
 		logging.Warn("No light found for id=%s", id)
@@ -127,14 +145,18 @@ func (lc *LIFXClient) TurnOn(id string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	time := time.Duration(duration) * time.Millisecond
+
+	l.stale = true
+
 	if l.light != nil {
-		return l.light.SetPower(ctx, nil, lifxlan.PowerOn, true)
+		return l.light.SetLightPower(ctx, nil, lifxlan.PowerOn, time, true)
 	}
 
 	return l.device.SetPower(ctx, nil, lifxlan.PowerOn, true)
 }
 
-func (lc *LIFXClient) TurnOff(id string) error {
+func (lc *LIFXClient) TurnOff(id string, duration uint32) error {
 	l := lc.devices.Get(id)
 	if l == nil {
 		logging.Warn("No light found for id=%s", id)
@@ -144,8 +166,12 @@ func (lc *LIFXClient) TurnOff(id string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	time := time.Duration(duration) * time.Millisecond
+
+	l.stale = true
+
 	if l.light != nil {
-		return l.light.SetPower(ctx, nil, lifxlan.PowerOff, true)
+		return l.light.SetLightPower(ctx, nil, lifxlan.PowerOff, time, true)
 	}
 
 	return l.device.SetPower(ctx, nil, lifxlan.PowerOff, true)
@@ -176,12 +202,22 @@ func (lc *LIFXClient) SetWhite(id string, brightness uint16, kelvin uint16, dura
 	}
 
 	b := uint16((float32(0xffff) * (float32(brightness) / 100)))
+	if brightness == 0 && l.color != nil {
+		b = l.color.Brightness
+	}
+
+	if kelvin == 0 && l.color != nil {
+		kelvin = l.color.Kelvin
+	}
+
 	time := time.Duration(duration) * time.Millisecond
 
 	hsbk := &lifxlan.Color{
 		Kelvin:     kelvin,
 		Brightness: b,
 	}
+
+	l.stale = true
 
 	err = l.light.SetColor(ctx, conn, hsbk, time, true)
 	if err != nil {
@@ -210,6 +246,11 @@ func (lc *LIFXClient) SetColor(id string, hsbk *lifxlan.Color, duration uint32) 
 		return nil
 	}
 
+	// Mutating input - yuk - best find another way
+	if hsbk.Kelvin == 0 && l.color != nil {
+		hsbk.Kelvin = l.color.Kelvin
+	}
+
 	conn, err := l.light.Dial()
 	if err != nil {
 		log.Fatal(err)
@@ -221,6 +262,8 @@ func (lc *LIFXClient) SetColor(id string, hsbk *lifxlan.Color, duration uint32) 
 	}
 
 	time := time.Duration(duration) * time.Millisecond
+
+	l.stale = true
 
 	err = l.light.SetColor(ctx, conn, hsbk, time, true)
 	if err != nil {
@@ -249,6 +292,8 @@ func (lc *LIFXClient) SetRelay(id string, index uint8, power bool) error {
 		return nil
 	}
 
+	l.stale = true
+
 	if err := l.relay.SetRPower(ctx, nil, index, getPower(power), true); err != nil {
 		return err
 	}
@@ -275,15 +320,19 @@ func (lc *LIFXClient) HandleCommand(id string, command *mqtt.Command) error {
 	if command.Brightness != nil {
 		brightness = *command.Brightness
 		if brightness == 0 {
-			return lc.TurnOff(id)
+			return lc.TurnOff(id, dur)
 		}
 	}
-
 	temperature := uint16(0)
 	if command.Temperature != nil {
 		temperature = *command.Temperature
 	}
+
 	if temperature > 0 {
+		logging.Info("Set light %s %dK %d%%", id, temperature, brightness)
+		lc.SetWhite(id, brightness, temperature, dur)
+		return nil
+	} else if brightness > 0 {
 		logging.Info("Set light %s %dK %d%%", id, temperature, brightness)
 		lc.SetWhite(id, brightness, temperature, dur)
 		return nil

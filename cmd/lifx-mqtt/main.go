@@ -28,17 +28,25 @@ func main() {
 	if err != nil {
 		logging.Error("Error parsing URL %s", err)
 	}
-	topic := os.ExpandEnv("$MQTT_TOPIC_PREFIX/set/#")
+	baseTopic := os.Getenv("MQTT_TOPIC_PREFIX")
+	subscribeTopic := os.ExpandEnv("$MQTT_TOPIC_PREFIX/set/#")
 
-	mc := mqtt.NewMQTTClient(mu, topic)
-	lc := lifx.NewClient()
+	mc := mqtt.NewMQTTClient(mu, baseTopic, subscribeTopic)
+	lc := lifx.NewClient(mqtt.NewMqttStatusEmitter(mc))
 	mc.Connect(lc)
 	defer mc.Disconnect()
 
+	go updateStaleCache(lc)
+	go updateCache(lc)
 	go discoverLoop(lc)
-	go updateCachedState(lc)
 	// NOTE: can use NewDevice to avoid having to rediscover each startup
 	// eg NewDevice("1.2.3.4:1234", lifxlan.ServiceUDP, ParseTarget("0123456"))
+	// ip := "192.168.86.91"
+	// mac := "d0:73:d5:2c:d6:80"
+	// err = lc.AddDevice(ip, mac)
+	// if err != nil {
+	// 	logging.Error("Error adding device %s", err)
+	// }
 
 	logging.Info("Ready")
 
@@ -91,17 +99,36 @@ func discoverLoop(lc *lifx.LIFXClient) {
 	}
 }
 
-func updateCachedState(lc *lifx.LIFXClient) {
+func updateStaleCache(lc *lifx.LIFXClient) {
 	// Set up a channel to receive OS signals so we can gracefully exit
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
 
-	tick := time.Tick(1 * time.Minute)
+	tick := time.Tick(10 * time.Second)
 
 	for {
 		select {
 		case <-tick:
-			lc.RefreshLightState()
+			lc.RefreshDevices()
+		case <-signalChan:
+			// Stop the loop when an interrupt signal is received
+			logging.Info("Background stale cache updater interrupted, exiting")
+			return
+		}
+	}
+}
+
+func updateCache(lc *lifx.LIFXClient) {
+	// Set up a channel to receive OS signals so we can gracefully exit
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+
+	tick := time.Tick(10 * time.Minute)
+
+	for {
+		select {
+		case <-tick:
+			lc.ForceRefreshDevices()
 		case <-signalChan:
 			// Stop the loop when an interrupt signal is received
 			logging.Info("Background cached state updater interrupted, exiting")
