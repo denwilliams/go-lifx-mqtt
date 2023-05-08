@@ -2,7 +2,6 @@ package lifx
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net"
 	"strings"
@@ -26,7 +25,6 @@ func NewClient(emitter StatusEmitter) *LIFXClient {
 type LIFXClient struct {
 	devices     deviceMap
 	discovering bool
-	refreshing  bool
 	emitter     StatusEmitter
 }
 
@@ -81,8 +79,7 @@ func (lc *LIFXClient) DiscoverWithTimeout(timeout time.Duration) int {
 			continue
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 
 		if err := device.GetLabel(ctx, nil); err != nil {
 			logging.Warn("Couldn't get label for device=%s err=%s", t, err.Error())
@@ -93,47 +90,26 @@ func (lc *LIFXClient) DiscoverWithTimeout(timeout time.Duration) int {
 		lc.devices.Set(key, l)
 		numDiscovered++
 		logging.Info("Found device label=\"%s\" target=%s", device.Label(), t)
-
-		// err := l.Load()
-		// if checkContextError(err) {
-		// 	log.Printf("Check light capabilities for %v failed: %v", device, err)
-		// 	continue
-		// }
 	}
 
 	logging.Debug("Total lights discovered: %d", len(lc.devices))
 	lc.discovering = false
 
+	return numDiscovered
+}
+
+func (lc *LIFXClient) LoadDevices() {
 	for _, l := range lc.devices {
 		if !l.loaded {
 			go l.Load()
 		}
 	}
-
-	return numDiscovered
 }
 
 func (lc *LIFXClient) RefreshDevices() {
-	if lc.refreshing {
-		logging.Warn("Aborted - already refreshing")
-		return
-	}
-	lc.refreshing = true
 	for _, l := range lc.devices {
-		if l.stale {
-			// TODO: needs to back off when a device is continually failing, eg if it's offline
-			logging.Debug("Refreshing %s", l.id)
-			go l.Refresh(lc.emitter)
-		}
+		l.QueueRefresh(lc.emitter, 0)
 	}
-	lc.refreshing = false
-}
-
-func (lc *LIFXClient) ForceRefreshDevices() {
-	for _, l := range lc.devices {
-		l.stale = true
-	}
-	lc.RefreshDevices()
 }
 
 func (lc *LIFXClient) TurnOn(id string, duration uint32) error {
@@ -148,7 +124,7 @@ func (lc *LIFXClient) TurnOn(id string, duration uint32) error {
 
 	time := time.Duration(duration) * time.Millisecond
 
-	l.stale = true
+	defer l.QueueRefresh(lc.emitter, time)
 
 	if l.light != nil {
 		return l.light.SetLightPower(ctx, nil, lifxlan.PowerOn, time, true)
@@ -169,7 +145,7 @@ func (lc *LIFXClient) TurnOff(id string, duration uint32) error {
 
 	time := time.Duration(duration) * time.Millisecond
 
-	l.stale = true
+	defer l.QueueRefresh(lc.emitter, time)
 
 	if l.light != nil {
 		return l.light.SetLightPower(ctx, nil, lifxlan.PowerOff, time, true)
@@ -218,7 +194,7 @@ func (lc *LIFXClient) SetWhite(id string, brightness uint16, kelvin uint16, dura
 		Brightness: b,
 	}
 
-	l.stale = true
+	defer l.QueueRefresh(lc.emitter, time)
 
 	err = l.light.SetColor(ctx, conn, hsbk, time, true)
 	if err != nil {
@@ -264,7 +240,7 @@ func (lc *LIFXClient) SetColor(id string, hsbk *lifxlan.Color, duration uint32) 
 
 	time := time.Duration(duration) * time.Millisecond
 
-	l.stale = true
+	defer l.QueueRefresh(lc.emitter, time)
 
 	err = l.light.SetColor(ctx, conn, hsbk, time, true)
 	if err != nil {
@@ -293,7 +269,7 @@ func (lc *LIFXClient) SetRelay(id string, index uint8, power bool) error {
 		return nil
 	}
 
-	l.stale = true
+	defer l.QueueRefresh(lc.emitter, 100*time.Millisecond)
 
 	if err := l.relay.SetRPower(ctx, nil, index, getPower(power), true); err != nil {
 		return err
@@ -371,24 +347,6 @@ func (lc *LIFXClient) HandleCommand(id string, command *mqtt.Command) error {
 	}
 
 	return nil
-}
-
-func checkContextError(err error) bool {
-	return err != nil && err != context.Canceled && err != context.DeadlineExceeded
-}
-
-func safeUint16(s *uint16) string {
-	if s == nil {
-		return "(nil)"
-	}
-	return fmt.Sprintf("%d", *s)
-}
-
-func safeString(s *string) string {
-	if s == nil {
-		return "(nil)"
-	}
-	return (*s)
 }
 
 func getPower(power bool) lifxlan.Power {

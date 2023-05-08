@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"strconv"
+	"sync"
 	"time"
 
 	lifxlight "github.com/denwilliams/go-lifx-mqtt/internal/lifx/light"
@@ -19,7 +20,6 @@ func newDevice(id string, device lifxlan.Device) *lifxdevice {
 type lifxdevice struct {
 	id         string
 	loaded     bool
-	stale      bool
 	device     lifxlan.Device
 	light      lifxlight.Device
 	relay      lifxrelay.Device
@@ -27,12 +27,19 @@ type lifxdevice struct {
 	power      lifxlan.Power
 	color      *lifxlan.Color
 	relayPower [4]lifxlan.Power
+	mu         sync.Mutex
+	timer      *time.Timer
 }
 
 func (l *lifxdevice) Load() error {
 	if l.device == nil {
 		return nil
 	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	logging.Debug("Loading %s", l.id)
 
 	timeout := 30 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -51,7 +58,7 @@ func (l *lifxdevice) Load() error {
 		log.Fatal(ctx.Err())
 	}
 	if err := d.GetHardwareVersion(ctx, conn); err != nil {
-		logging.Warn("Failed to get hardware version %s type=%d", l.id)
+		logging.Warn("Failed to get hardware version %s", l.id)
 		return err
 	}
 
@@ -65,7 +72,6 @@ func (l *lifxdevice) Load() error {
 
 		l.light = lifxlight.Wrap(l.device)
 		l.loaded = true
-		l.stale = true
 		return nil
 	}
 
@@ -74,17 +80,20 @@ func (l *lifxdevice) Load() error {
 
 		l.relay = lifxrelay.Wrap(l.device)
 		l.loaded = true
-		l.stale = true
 		return nil
 	}
 
 	logging.Warn("Ignoring wrapping device %s type=%d", l.id, lifxType)
 	l.loaded = true
-	l.stale = true
 	return nil
 }
 
 func (l *lifxdevice) Refresh(emitter StatusEmitter) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	logging.Info("Refreshing %s", l.id)
+
 	timeout := 15 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -96,7 +105,7 @@ func (l *lifxdevice) Refresh(emitter StatusEmitter) error {
 	defer conn.Close()
 
 	if ctx.Err() != nil {
-		// shouldnt be fatal
+		// shouldn't be fatal
 		log.Fatal(ctx.Err())
 	}
 
@@ -138,7 +147,20 @@ func (l *lifxdevice) Refresh(emitter StatusEmitter) error {
 		logging.Debug("Refreshed %s relayPower=%v", l.id, l.relayPower)
 	}
 
-	l.stale = false
-
 	return nil
+}
+
+func (l *lifxdevice) QueueRefresh(emitter StatusEmitter, duration time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.timer != nil {
+		l.timer.Stop()
+	}
+	if duration == 0 {
+		duration = 1 * time.Second
+	}
+	l.timer = time.AfterFunc(duration, func() {
+		l.Refresh(emitter)
+	})
 }

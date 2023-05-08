@@ -36,17 +36,11 @@ func main() {
 	mc.Connect(lc)
 	defer mc.Disconnect()
 
-	go updateStaleCache(lc)
+	go loadDevices(lc)
 	go updateCache(lc)
 	go discoverLoop(lc)
 	// NOTE: can use NewDevice to avoid having to rediscover each startup
 	// eg NewDevice("1.2.3.4:1234", lifxlan.ServiceUDP, ParseTarget("0123456"))
-	// ip := "192.168.86.91"
-	// mac := "d0:73:d5:2c:d6:80"
-	// err = lc.AddDevice(ip, mac)
-	// if err != nil {
-	// 	logging.Error("Error adding device %s", err)
-	// }
 
 	logging.Info("Ready")
 
@@ -99,20 +93,20 @@ func discoverLoop(lc *lifx.LIFXClient) {
 	}
 }
 
-func updateStaleCache(lc *lifx.LIFXClient) {
+func loadDevices(lc *lifx.LIFXClient) {
 	// Set up a channel to receive OS signals so we can gracefully exit
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
 
-	tick := time.Tick(10 * time.Second)
+	tick := time.Tick(15 * time.Second)
 
 	for {
 		select {
 		case <-tick:
-			lc.RefreshDevices()
+			lc.LoadDevices()
 		case <-signalChan:
 			// Stop the loop when an interrupt signal is received
-			logging.Info("Background stale cache updater interrupted, exiting")
+			logging.Info("Background device loader interrupted, exiting")
 			return
 		}
 	}
@@ -128,7 +122,7 @@ func updateCache(lc *lifx.LIFXClient) {
 	for {
 		select {
 		case <-tick:
-			lc.ForceRefreshDevices()
+			lc.RefreshDevices()
 		case <-signalChan:
 			// Stop the loop when an interrupt signal is received
 			logging.Info("Background cached state updater interrupted, exiting")
