@@ -39,8 +39,8 @@ func main() {
 	go loadDevices(lc)
 	go updateCache(lc)
 	go discoverLoop(lc)
-	// NOTE: can use NewDevice to avoid having to rediscover each startup
-	// eg NewDevice("1.2.3.4:1234", lifxlan.ServiceUDP, ParseTarget("0123456"))
+	// NOTE: can use AddDevice to avoid having to rediscover each startup
+	// err = lc.AddDevice("1.2.3.4:1234", "0:73:d5:01:23:45")
 
 	logging.Info("Ready")
 
