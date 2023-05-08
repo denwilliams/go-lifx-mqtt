@@ -121,6 +121,7 @@ func (lc *LIFXClient) RefreshDevices() {
 	lc.refreshing = true
 	for _, l := range lc.devices {
 		if l.stale {
+			// TODO: needs to back off when a device is continually failing, eg if it's offline
 			logging.Debug("Refreshing %s", l.id)
 			go l.Refresh(lc.emitter)
 		}
