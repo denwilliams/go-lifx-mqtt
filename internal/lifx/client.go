@@ -119,18 +119,7 @@ func (lc *LIFXClient) TurnOn(id string, duration uint32) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	time := time.Duration(duration) * time.Millisecond
-
-	defer l.QueueRefresh(lc.emitter, time)
-
-	if l.light != nil {
-		return l.light.SetLightPower(ctx, nil, lifxlan.PowerOn, time, true)
-	}
-
-	return l.device.SetPower(ctx, nil, lifxlan.PowerOn, true)
+	return l.TurnOn(lc.emitter, duration)
 }
 
 func (lc *LIFXClient) TurnOff(id string, duration uint32) error {
@@ -140,18 +129,7 @@ func (lc *LIFXClient) TurnOff(id string, duration uint32) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	time := time.Duration(duration) * time.Millisecond
-
-	defer l.QueueRefresh(lc.emitter, time)
-
-	if l.light != nil {
-		return l.light.SetLightPower(ctx, nil, lifxlan.PowerOff, time, true)
-	}
-
-	return l.device.SetPower(ctx, nil, lifxlan.PowerOff, true)
+	return l.TurnOff(lc.emitter, duration)
 }
 
 func (lc *LIFXClient) SetWhite(id string, brightness uint16, kelvin uint16, duration uint32) error {
@@ -161,52 +139,7 @@ func (lc *LIFXClient) SetWhite(id string, brightness uint16, kelvin uint16, dura
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if l.light == nil {
-		return nil
-	}
-
-	conn, err := l.light.Dial()
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer conn.Close()
-
-	if ctx.Err() != nil {
-		log.Fatal(ctx.Err())
-	}
-
-	b := uint16((float32(0xffff) * (float32(brightness) / 100)))
-	if brightness == 0 && l.color != nil {
-		b = l.color.Brightness
-	}
-
-	if kelvin == 0 && l.color != nil {
-		kelvin = l.color.Kelvin
-	}
-
-	time := time.Duration(duration) * time.Millisecond
-
-	hsbk := &lifxlan.Color{
-		Kelvin:     kelvin,
-		Brightness: b,
-	}
-
-	defer l.QueueRefresh(lc.emitter, time)
-
-	err = l.light.SetColor(ctx, conn, hsbk, time, true)
-	if err != nil {
-		return err
-	}
-
-	err = l.light.SetPower(ctx, conn, lifxlan.PowerOn, true)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return l.SetWhite(lc.emitter, brightness, kelvin, duration)
 }
 
 func (lc *LIFXClient) SetColor(id string, hsbk *lifxlan.Color, duration uint32) error {
@@ -216,43 +149,7 @@ func (lc *LIFXClient) SetColor(id string, hsbk *lifxlan.Color, duration uint32) 
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if l.light == nil {
-		return nil
-	}
-
-	// Mutating input - yuk - best find another way
-	if hsbk.Kelvin == 0 && l.color != nil {
-		hsbk.Kelvin = l.color.Kelvin
-	}
-
-	conn, err := l.light.Dial()
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer conn.Close()
-
-	if ctx.Err() != nil {
-		log.Fatal(ctx.Err())
-	}
-
-	time := time.Duration(duration) * time.Millisecond
-
-	defer l.QueueRefresh(lc.emitter, time)
-
-	err = l.light.SetColor(ctx, conn, hsbk, time, true)
-	if err != nil {
-		return err
-	}
-
-	err = l.light.SetPower(ctx, conn, lifxlan.PowerOn, true)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return l.SetColor(lc.emitter, hsbk, duration)
 }
 
 func (lc *LIFXClient) SetRelay(id string, index uint8, power bool) error {
@@ -262,20 +159,7 @@ func (lc *LIFXClient) SetRelay(id string, index uint8, power bool) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if l.relay == nil {
-		return nil
-	}
-
-	defer l.QueueRefresh(lc.emitter, 100*time.Millisecond)
-
-	if err := l.relay.SetRPower(ctx, nil, index, getPower(power), true); err != nil {
-		return err
-	}
-
-	return nil
+	return l.SetRelay(lc.emitter, index, power)
 }
 
 func (lc *LIFXClient) HandleCommand(id string, command *mqtt.Command) error {

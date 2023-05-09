@@ -164,3 +164,154 @@ func (l *lifxdevice) QueueRefresh(emitter StatusEmitter, duration time.Duration)
 		l.Refresh(emitter)
 	})
 }
+
+func (l *lifxdevice) TurnOn(emitter StatusEmitter, duration uint32) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	time := time.Duration(duration) * time.Millisecond
+
+	defer l.QueueRefresh(emitter, time)
+
+	if l.light != nil {
+		return l.light.SetLightPower(ctx, nil, lifxlan.PowerOn, time, true)
+	}
+
+	return l.device.SetPower(ctx, nil, lifxlan.PowerOn, true)
+}
+
+func (l *lifxdevice) TurnOff(emitter StatusEmitter, duration uint32) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	time := time.Duration(duration) * time.Millisecond
+
+	defer l.QueueRefresh(emitter, time)
+
+	if l.light != nil {
+		return l.light.SetLightPower(ctx, nil, lifxlan.PowerOff, time, true)
+	}
+
+	return l.device.SetPower(ctx, nil, lifxlan.PowerOff, true)
+}
+
+func (l *lifxdevice) SetWhite(emitter StatusEmitter, brightness uint16, kelvin uint16, duration uint32) error {
+	if l.light == nil {
+		return nil
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	conn, err := l.light.Dial()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+
+	if ctx.Err() != nil {
+		log.Fatal(ctx.Err())
+	}
+
+	b := uint16((float32(0xffff) * (float32(brightness) / 100)))
+	if brightness == 0 && l.color != nil {
+		b = l.color.Brightness
+	}
+
+	if kelvin == 0 && l.color != nil {
+		kelvin = l.color.Kelvin
+	}
+
+	time := time.Duration(duration) * time.Millisecond
+
+	hsbk := &lifxlan.Color{
+		Kelvin:     kelvin,
+		Brightness: b,
+	}
+
+	defer l.QueueRefresh(emitter, time)
+
+	err = l.light.SetColor(ctx, conn, hsbk, time, true)
+	if err != nil {
+		return err
+	}
+
+	err = l.light.SetPower(ctx, conn, lifxlan.PowerOn, true)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (l *lifxdevice) SetColor(emitter StatusEmitter, hsbk *lifxlan.Color, duration uint32) error {
+	if l.light == nil {
+		return nil
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Mutating input - yuk - best find another way
+	if hsbk.Kelvin == 0 && l.color != nil {
+		hsbk.Kelvin = l.color.Kelvin
+	}
+
+	conn, err := l.light.Dial()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+
+	if ctx.Err() != nil {
+		log.Fatal(ctx.Err())
+	}
+
+	time := time.Duration(duration) * time.Millisecond
+
+	defer l.QueueRefresh(emitter, time)
+
+	err = l.light.SetColor(ctx, conn, hsbk, time, true)
+	if err != nil {
+		return err
+	}
+
+	err = l.light.SetPower(ctx, conn, lifxlan.PowerOn, true)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (l *lifxdevice) SetRelay(emitter StatusEmitter, index uint8, power bool) error {
+	if l.relay == nil {
+		return nil
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	defer l.QueueRefresh(emitter, 100*time.Millisecond)
+
+	if err := l.relay.SetRPower(ctx, nil, index, getPower(power), true); err != nil {
+		return err
+	}
+
+	return nil
+}
