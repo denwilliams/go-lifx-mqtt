@@ -119,6 +119,7 @@ func (lc *LIFXClient) TurnOn(id string, duration uint32) error {
 		return nil
 	}
 
+	devicesControlled.WithLabelValues("light", "on").Inc()
 	return l.TurnOn(lc.emitter, duration)
 }
 
@@ -129,6 +130,7 @@ func (lc *LIFXClient) TurnOff(id string, duration uint32) error {
 		return nil
 	}
 
+	devicesControlled.WithLabelValues("light", "off").Inc()
 	return l.TurnOff(lc.emitter, duration)
 }
 
@@ -139,6 +141,7 @@ func (lc *LIFXClient) SetWhite(id string, brightness uint16, kelvin uint16, dura
 		return nil
 	}
 
+	devicesControlled.WithLabelValues("light", "on").Inc()
 	return l.SetWhite(lc.emitter, brightness, kelvin, duration)
 }
 
@@ -149,6 +152,7 @@ func (lc *LIFXClient) SetColor(id string, hsbk *lifxlan.Color, duration uint32) 
 		return nil
 	}
 
+	devicesControlled.WithLabelValues("light", "on").Inc()
 	return l.SetColor(lc.emitter, hsbk, duration)
 }
 
@@ -159,6 +163,7 @@ func (lc *LIFXClient) SetRelay(id string, index uint8, power bool) error {
 		return nil
 	}
 
+	devicesControlled.WithLabelValues("relay", getPowerLabel(power)).Inc()
 	return l.SetRelay(lc.emitter, index, power)
 }
 
@@ -238,4 +243,11 @@ func getPower(power bool) lifxlan.Power {
 		return lifxlan.PowerOn
 	}
 	return lifxlan.PowerOff
+}
+
+func getPowerLabel(power bool) string {
+	if power {
+		return "on"
+	}
+	return "off"
 }

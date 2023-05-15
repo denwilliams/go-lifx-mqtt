@@ -1,20 +1,26 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/denwilliams/go-lifx-mqtt/internal/lifx"
 	"github.com/denwilliams/go-lifx-mqtt/internal/logging"
 	"github.com/denwilliams/go-lifx-mqtt/internal/mqtt"
+	"github.com/denwilliams/go-lifx-mqtt/internal/web"
 	"github.com/joho/godotenv"
 )
 
 func init() {
-	logging.Init()
+	logging.Init(nil, logging.DefaultFlags)
 	logging.Info("Loading .env file")
 	err := godotenv.Load(".env")
 
@@ -30,6 +36,11 @@ func main() {
 	}
 	baseTopic := os.Getenv("MQTT_TOPIC_PREFIX")
 	subscribeTopic := os.ExpandEnv("$MQTT_TOPIC_PREFIX/set/#")
+	portStr := os.Getenv("PORT")
+	serverPort, _ := strconv.Atoi(portStr)
+	if err != nil {
+		logging.Error("Error parsing HTTP_PORT %s", err)
+	}
 
 	mc := mqtt.NewMQTTClient(mu, baseTopic, subscribeTopic)
 	lc := lifx.NewClient(mqtt.NewMqttStatusEmitter(mc))
@@ -41,12 +52,15 @@ func main() {
 	go discoverLoop(lc)
 	// NOTE: can use AddDevice to avoid having to rediscover each startup
 	// err = lc.AddDevice("1.2.3.4:1234", "0:73:d5:01:23:45")
+	if serverPort > 0 {
+		go startServer(serverPort)
+	}
 
 	logging.Info("Ready")
 
 	waitForExit()
 
-	logging.Info("Terminating program")
+	logging.Info("Terminating")
 }
 
 func waitForExit() {
@@ -128,5 +142,21 @@ func updateCache(lc *lifx.LIFXClient) {
 			logging.Info("Background cached state updater interrupted, exiting")
 			return
 		}
+	}
+}
+
+func startServer(port int) {
+	logging.Info("Creating HTTP server")
+	handler := web.CreateHandler()
+	server := http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: handler,
+	}
+	logging.Info("Starting HTTP server on port %d", port)
+	if err := server.ListenAndServe(); err != nil {
+		if !errors.Is(err, http.ErrServerClosed) {
+			fmt.Printf("error running http server: %s\n", err)
+		}
+		log.Fatal(err)
 	}
 }

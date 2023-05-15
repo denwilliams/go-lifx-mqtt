@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"io"
 	"log"
 	"os"
 )
@@ -12,11 +13,23 @@ var (
 	errorLogger   *log.Logger
 )
 
-func Init() {
-	debugLogger = log.New(os.Stdout, "DEBG: ", log.Ldate|log.Ltime)
-	infoLogger = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime)
-	warningLogger = log.New(os.Stdout, "WARN: ", log.Ldate|log.Ltime)
-	errorLogger = log.New(os.Stderr, "ERRO: ", log.Ldate|log.Ltime)
+const DefaultFlags = log.Ldate | log.Ltime
+
+func Init(out io.Writer, flag int) {
+	so := out
+	se := out
+
+	if so == nil {
+		so = os.Stdout
+	}
+	if se == nil {
+		se = os.Stderr
+	}
+
+	debugLogger = log.New(so, "DEBG: ", flag)
+	infoLogger = log.New(so, "INFO: ", flag)
+	warningLogger = log.New(so, "WARN: ", flag)
+	errorLogger = log.New(se, "ERRO: ", flag)
 }
 
 func Debug(format string, v ...interface{}) {
