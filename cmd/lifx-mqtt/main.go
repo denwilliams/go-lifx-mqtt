@@ -131,7 +131,7 @@ func updateCache(lc *lifx.LIFXClient) {
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
 
-	tick := time.Tick(10 * time.Minute)
+	tick := time.Tick(1 * time.Minute)
 
 	for {
 		select {
